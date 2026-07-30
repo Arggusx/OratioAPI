@@ -7,13 +7,11 @@ export async function translateText(text, targetLang = "pt") {
 
         const translated = data?.responseData?.translatedText || "";
 
-        // Quando excede o limite de tradução, volta texto original
         if (
             !translated ||
             translated.includes("MYMEMORY WARNING") ||
             translated.toLowerCase().includes("limit")
         ) {
-            console.warn("⚠️ Limite atingido. Retornando texto original.");
             return text;
         }
 

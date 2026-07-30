@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
+import { generateDailyReadingsForDate } from "./cron/daily-reading.js";
 
 export default async function handler(req, res) {
-  // ── CORS ──────────────────────────────────────────────────────────────────
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -19,17 +19,16 @@ export default async function handler(req, res) {
   try {
     const today = new Date().toISOString().split("T")[0];
 
-    // ── 1. Buscar blocos de leitura de hoje ─────────────────────────────────
     let rows = await sql.query(
       `SELECT
-         date,
+         date::text AS date,
          category AS id,
          category_title AS titulo_categoria,
          reference AS referencia,
          estimated_time AS tempo_estimado,
          text AS texto
        FROM daily_readings
-       WHERE date = $1
+       WHERE date::text = $1
        ORDER BY 
          CASE category
            WHEN 'at_historia' THEN 1
@@ -40,25 +39,47 @@ export default async function handler(req, res) {
       [today]
     );
 
-    // ── 2. Fallback: buscar os blocos da data mais recente ──────────────────
+    if (rows.length < 3) {
+      await generateDailyReadingsForDate(sql, today);
+
+      rows = await sql.query(
+        `SELECT
+           date::text AS date,
+           category AS id,
+           category_title AS titulo_categoria,
+           reference AS referencia,
+           estimated_time AS tempo_estimado,
+           text AS texto
+         FROM daily_readings
+         WHERE date::text = $1
+         ORDER BY 
+           CASE category
+             WHEN 'at_historia' THEN 1
+             WHEN 'poesia_sabedoria' THEN 2
+             WHEN 'cartas_epistolas' THEN 3
+             ELSE 4
+           END`,
+        [today]
+      );
+    }
+
     if (rows.length === 0) {
       const latestDateRow = await sql.query(
-        "SELECT MAX(date) AS latest_date FROM daily_readings"
+        "SELECT MAX(date::text) AS latest_date FROM daily_readings"
       );
-      
       const latestDate = latestDateRow[0]?.latest_date;
 
       if (latestDate) {
         rows = await sql.query(
           `SELECT
-             date,
+             date::text AS date,
              category AS id,
              category_title AS titulo_categoria,
              reference AS referencia,
              estimated_time AS tempo_estimado,
              text AS texto
            FROM daily_readings
-           WHERE date = $1
+           WHERE date::text = $1
            ORDER BY 
              CASE category
                WHEN 'at_historia' THEN 1
@@ -73,17 +94,12 @@ export default async function handler(req, res) {
 
     if (rows.length === 0) {
       return res.status(404).json({
-        error: "Nenhuma leitura diária encontrada. O cron job ainda não foi executado.",
+        error: "Nenhuma leitura diária encontrada.",
       });
     }
 
-    // Formatar a data no padrão YYYY-MM-DD
-    const rawDate = rows[0].date;
-    const formattedDate = typeof rawDate === "string" 
-      ? rawDate.split("T")[0] 
-      : new Date(rawDate).toISOString().split("T")[0];
+    const formattedDate = rows[0].date.split("T")[0];
 
-    // Mapear os 3 blocos
     const readings = rows.map((r) => ({
       id: r.id,
       titulo_categoria: r.titulo_categoria,
