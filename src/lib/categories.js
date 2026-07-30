@@ -1,9 +1,3 @@
-/**
- * Definição e agrupamento dos livros bíblicos em 3 categorias principais.
- * Evangelhos (São Mateus, São Marcos, São Lucas, São João) e Atos dos Apóstolos
- * estão EXCLUÍDOS conforme restrição de negócio.
- */
-
 export const CATEGORIES = {
   at_historia: {
     id: "at_historia",

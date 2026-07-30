@@ -5,12 +5,8 @@ const router = express.Router();
 
 router.get("/daily-reflection", async (req, res) => {
     try {
-        console.log("Buscando reflexão diária...");
         const reflection = await getDailyReflection();
-
-        // O retorno já está no formato exigido: { success, date, title, content }
         return res.json(reflection);
-
     } catch (err) {
         console.error(err);
         return res.status(500).json({ 

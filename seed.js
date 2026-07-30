@@ -10,15 +10,11 @@ if (!DATABASE_URL) {
 
 const sql = neon(DATABASE_URL);
 
-// ── Leitura do JSON ──────────────────────────────────────────────────────────
 const raw = readFileSync("bibliaAveMaria.json", "utf-8");
 const biblia = JSON.parse(raw);
 
-// O JSON pode ter uma chave raiz "antigoTestamento" que contém todos os livros,
-// ou chaves separadas "antigoTestamento" e "novoTestamento".
 let livros = [];
 if (Array.isArray(biblia)) {
-  // Formato lista plana de livros
   livros = biblia;
 } else if (biblia.antigoTestamento) {
   livros = livros.concat(biblia.antigoTestamento);
@@ -30,7 +26,6 @@ if (Array.isArray(biblia)) {
   process.exit(1);
 }
 
-// ── Extração dos versículos ──────────────────────────────────────────────────
 const verses = [];
 let id = 1;
 
@@ -53,7 +48,6 @@ for (const livro of livros) {
 
 console.log(`📖 Total de versículos encontrados: ${verses.length}`);
 
-// ── Inserção em batches ──────────────────────────────────────────────────────
 const BATCH_SIZE = 100;
 
 async function seed() {
@@ -64,7 +58,6 @@ async function seed() {
   for (let i = 0; i < verses.length; i += BATCH_SIZE) {
     const batch = verses.slice(i, i + BATCH_SIZE);
 
-    // Monta os placeholders: ($1,$2,$3,$4,$5), ($6,$7,$8,$9,$10), ...
     const placeholders = batch.map((_, idx) => {
       const offset = idx * 5;
       return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`;
@@ -81,7 +74,6 @@ async function seed() {
     await sql.query(query, values);
     inserted += batch.length;
 
-    // Progresso a cada 1000 versículos
     if (inserted % 1000 === 0 || inserted === verses.length) {
       console.log(`  ✅ ${inserted} / ${verses.length} versículos inseridos...`);
     }

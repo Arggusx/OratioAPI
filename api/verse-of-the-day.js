@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
+import { generateDailyVerseForDate } from "./cron/daily-verse.js";
 
 export default async function handler(req, res) {
-  // ── CORS ──────────────────────────────────────────────────────────────────
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -19,10 +19,9 @@ export default async function handler(req, res) {
   try {
     const today = new Date().toISOString().split("T")[0];
 
-    // ── Buscar versículo de hoje ────────────────────────────────────────────
     let rows = await sql.query(
       `SELECT
-         dv.date,
+         dv.date::text AS date,
          v.book_name,
          v.chapter,
          v.verse,
@@ -30,16 +29,34 @@ export default async function handler(req, res) {
          dv.reflection
        FROM daily_verses dv
        JOIN verses v ON v.id = dv.verse_id
-       WHERE dv.date = $1
+       WHERE dv.date::text = $1
        LIMIT 1`,
       [today]
     );
 
-    // ── Fallback: registro mais recente ─────────────────────────────────────
+    if (rows.length === 0) {
+      await generateDailyVerseForDate(sql, today);
+
+      rows = await sql.query(
+        `SELECT
+           dv.date::text AS date,
+           v.book_name,
+           v.chapter,
+           v.verse,
+           v.text,
+           dv.reflection
+         FROM daily_verses dv
+         JOIN verses v ON v.id = dv.verse_id
+         WHERE dv.date::text = $1
+         LIMIT 1`,
+        [today]
+      );
+    }
+
     if (rows.length === 0) {
       rows = await sql.query(
         `SELECT
-           dv.date,
+           dv.date::text AS date,
            v.book_name,
            v.chapter,
            v.verse,
@@ -54,14 +71,15 @@ export default async function handler(req, res) {
 
     if (rows.length === 0) {
       return res.status(404).json({
-        error: "Nenhum versículo do dia encontrado. O cron job ainda não foi executado.",
+        error: "Nenhum versículo do dia encontrado.",
       });
     }
 
     const row = rows[0];
+    const formattedDate = row.date.split("T")[0];
 
     return res.status(200).json({
-      date: row.date,
+      date: formattedDate,
       reference: `${row.book_name} ${row.chapter}:${row.verse}`,
       book: row.book_name,
       chapter: row.chapter,
