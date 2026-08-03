@@ -3,18 +3,56 @@ import { CATEGORIES } from "../../src/lib/categories.js";
 
 const CHUNK_SIZE = 12;
 
+async function generateReflection(ai, reading) {
+  const prompt = `Forneça uma breve interpretação teológica e uma aplicação prática para a leitura bíblica abaixo. Responda em português, em no máximo 2 parágrafos simples e inspiradores. Não invente versículos nem informações que não estejam no trecho.\n\nCategoria: ${reading.categoryTitle}\nReferência: ${reading.reference}\n\nTrecho:\n${reading.text}`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-flash-latest",
+    contents: prompt,
+  });
+
+  if (!response.text) {
+    throw new Error(`A IA não retornou uma interpretação para ${reading.reference}.`);
+  }
+
+  return response.text;
+}
+
 export async function generateDailyReadingsForDate(sql, today) {
   const generatedReadings = [];
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   for (const key of Object.keys(CATEGORIES)) {
     const category = CATEGORIES[key];
 
     const existing = await sql.query(
-      "SELECT id FROM daily_readings WHERE date::text = $1 AND category = $2 LIMIT 1",
+      `SELECT id, category_title, reference, text, reflection
+       FROM daily_readings
+       WHERE date::text = $1 AND category = $2
+       LIMIT 1`,
       [today, category.id]
     );
 
-    if (existing.length > 0) continue;
+    // Leituras já criadas antes desta mudança podem não ter interpretação.
+    // Nesse caso, completa somente a chamada de IA que estiver faltando.
+    if (existing.length > 0) {
+      const reading = existing[0];
+
+      if (!reading.reflection) {
+        const reflection = await generateReflection(ai, {
+          categoryTitle: reading.category_title,
+          reference: reading.reference,
+          text: reading.text,
+        });
+
+        await sql.query(
+          "UPDATE daily_readings SET reflection = $1 WHERE id = $2",
+          [reflection, reading.id]
+        );
+      }
+
+      continue;
+    }
 
     const lastRow = await sql.query(
       "SELECT COALESCE(MAX(end_verse_id), 0) AS last_end_id FROM daily_readings WHERE category = $1",
@@ -66,11 +104,12 @@ export async function generateDailyReadingsForDate(sql, today) {
 
     const text = verseRows.map((v) => `${v.verse}. ${v.text}`).join("\n");
 
-    await sql.query(
+    const insertedRows = await sql.query(
       `INSERT INTO daily_readings 
          (date, category, category_title, start_verse_id, end_verse_id, reference, text, estimated_time)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (date, category) DO NOTHING`,
+       ON CONFLICT (date, category) DO NOTHING
+       RETURNING id`,
       [
         today,
         category.id,
@@ -82,6 +121,23 @@ export async function generateDailyReadingsForDate(sql, today) {
         category.estimated_time,
       ]
     );
+
+    // Há uma chamada ao Gemini para cada uma das três categorias diárias.
+    // Persistimos antes da chamada para que uma falha possa ser retomada sem
+    // avançar o ponteiro de leitura.
+    const readingId = insertedRows[0]?.id;
+    if (readingId) {
+      const reflection = await generateReflection(ai, {
+        categoryTitle: category.title,
+        reference,
+        text,
+      });
+
+      await sql.query(
+        "UPDATE daily_readings SET reflection = $1 WHERE id = $2",
+        [reflection, readingId]
+      );
+    }
 
     generatedReadings.push({
       category: category.id,

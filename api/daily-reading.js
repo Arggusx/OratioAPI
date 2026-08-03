@@ -26,7 +26,8 @@ export default async function handler(req, res) {
          category_title AS titulo_categoria,
          reference AS referencia,
          estimated_time AS tempo_estimado,
-         text AS texto
+         text AS texto,
+         reflection AS reflexao
        FROM daily_readings
        WHERE date::text = $1
        ORDER BY 
@@ -39,7 +40,7 @@ export default async function handler(req, res) {
       [today]
     );
 
-    if (rows.length < 3) {
+    if (rows.length < 3 || rows.some((row) => !row.reflexao)) {
       await generateDailyReadingsForDate(sql, today);
 
       rows = await sql.query(
@@ -49,7 +50,8 @@ export default async function handler(req, res) {
            category_title AS titulo_categoria,
            reference AS referencia,
            estimated_time AS tempo_estimado,
-           text AS texto
+           text AS texto,
+           reflection AS reflexao
          FROM daily_readings
          WHERE date::text = $1
          ORDER BY 
@@ -77,7 +79,8 @@ export default async function handler(req, res) {
              category_title AS titulo_categoria,
              reference AS referencia,
              estimated_time AS tempo_estimado,
-             text AS texto
+             text AS texto,
+             reflection AS reflexao
            FROM daily_readings
            WHERE date::text = $1
            ORDER BY 
@@ -106,6 +109,7 @@ export default async function handler(req, res) {
       referencia: r.referencia,
       tempo_estimado: r.tempo_estimado,
       texto: r.texto,
+      reflexao: r.reflexao,
     }));
 
     return res.status(200).json({

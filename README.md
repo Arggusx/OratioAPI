@@ -1,6 +1,6 @@
 # Daily Prayer API
 
-API RESTful para leitura bíblica diária, homilia do evangelho e versículo do dia com reflexão gerada por IA. Construída com Node.js, hospedada na Vercel como Serverless Functions, com banco de dados PostgreSQL no Neon.
+API RESTful para leitura bíblica diária, homilia do evangelho e interpretações dos três blocos de leitura geradas por IA. Construída com Node.js, hospedada na Vercel como Serverless Functions, com banco de dados PostgreSQL no Neon.
 
 ---
 
@@ -87,10 +87,21 @@ Armazena os 3 blocos de leitura diária por categoria.
 | `end_verse_id` | `INT` | ID do último versículo do trecho |
 | `reference` | `VARCHAR(150)` | Referência bíblica (ex: "Gênesis 1:1-12") |
 | `text` | `TEXT` | Texto completo do trecho |
+| `reflection` | `TEXT` | Interpretação do trecho gerada pelo Gemini |
 | `estimated_time` | `VARCHAR(20)` | Tempo estimado de leitura |
 | `created_at` | `TIMESTAMP` | Data de criação |
 
 **Constraint**: `UNIQUE (date, category)` — garante apenas 1 bloco por categoria por dia.
+
+### Migração necessária
+
+Antes de publicar esta alteração, aplique a migração abaixo no banco Neon para criar a coluna que armazena as três interpretações diárias:
+
+```sql
+ALTER TABLE daily_readings ADD COLUMN IF NOT EXISTS reflection TEXT;
+```
+
+O mesmo comando está em `migrations/001_add_daily_readings_reflection.sql`.
 
 ---
 
@@ -119,7 +130,8 @@ Retorna os 3 blocos de leitura diária em ordem sequencial pela Bíblia.
       "titulo_categoria": "Antigo Testamento",
       "referencia": "Gênesis 1:1-12",
       "tempo_estimado": "~2 a 3 min",
-      "texto": "1. No princípio, Deus criou o céu e a terra.\n2. A terra estava..."
+      "texto": "1. No princípio, Deus criou o céu e a terra.\n2. A terra estava...",
+      "reflexao": "Este trecho apresenta Deus como origem de toda a criação..."
     },
     {
       "id": "poesia_sabedoria",
@@ -188,7 +200,7 @@ Configurados no `vercel.json` e executados automaticamente pela Vercel.
 
 Os cron jobs são protegidos pelo header `Authorization: Bearer CRON_SECRET`.
 
-Caso o cron não tenha sido executado antes da primeira requisição do dia, os endpoints públicos (`/api/daily-reading` e `/api/verse-of-the-day`) geram os dados automaticamente no momento da chamada.
+Caso o cron não tenha sido executado antes da primeira requisição do dia, o endpoint público `/api/daily-reading` gera os dados automaticamente no momento da chamada. Para cada bloco diário, é feita uma chamada ao Gemini e a interpretação é salva junto à leitura.
 
 ---
 
