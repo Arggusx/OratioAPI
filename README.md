@@ -10,11 +10,9 @@ API RESTful para leitura bíblica diária, homilia do evangelho e interpretaçõ
 daily-prayer-api/
 ├── api/                          # Serverless Functions (Vercel)
 │   ├── cron/
-│   │   ├── daily-reading.js      # Cron: gera os 3 blocos de leitura diária
-│   │   └── daily-verse.js        # Cron: gera o versículo do dia + reflexão IA
+│   │   └── daily-reading.js      # Cron: gera os 3 blocos de leitura diária
 │   ├── daily-reading.js          # GET /api/daily-reading
-│   ├── daily-reflection.js       # GET /api/daily-reflection
-│   └── verse-of-the-day.js       # GET /api/verse-of-the-day
+│   └── daily-homily.js           # GET /api/daily-homily
 ├── src/
 │   ├── lib/
 │   │   ├── categories.js         # Mapeamento dos livros por categoria
@@ -22,7 +20,7 @@ daily-prayer-api/
 │   ├── routes/
 │   │   └── dailyPrayer.js        # Rota Express (dev local)
 │   ├── services/
-│   │   ├── dailyDiscovery.js     # Web scraping da Homilia (Canção Nova)
+│   │   ├── dailyHomily.js        # Web scraping da Homilia (Canção Nova)
 │   │   └── translate.js          # Serviço de tradução
 │   └── server.js                 # Servidor Express (dev local)
 ├── seed.js                       # Script de seed da Bíblia no banco
@@ -61,18 +59,6 @@ Armazena todos os versículos da Bíblia Ave Maria (~35.450 registros).
 | `verse` | `INT` | Número do versículo |
 | `text` | `TEXT` | Texto do versículo |
 
-### Tabela `daily_verses`
-
-Armazena o versículo do dia com a reflexão gerada pela IA.
-
-| Coluna | Tipo | Descrição |
-|---|---|---|
-| `id` | `SERIAL PK` | ID do registro |
-| `verse_id` | `INT` | FK para `verses.id` |
-| `date` | `DATE` | Data do versículo |
-| `reflection` | `TEXT` | Reflexão gerada pelo Gemini |
-| `created_at` | `TIMESTAMP` | Data de criação |
-
 ### Tabela `daily_readings`
 
 Armazena os 3 blocos de leitura diária por categoria.
@@ -101,7 +87,7 @@ Antes de publicar esta alteração, aplique a migração abaixo no banco Neon pa
 ALTER TABLE daily_readings ADD COLUMN IF NOT EXISTS reflection TEXT;
 ```
 
-O mesmo comando está em `migrations/001_add_daily_readings_reflection.sql`.
+Execute também `migrations/002_rename_old_testament_category.sql` para preservar o progresso da categoria que passou a usar o identificador `antigo_testamento`.
 
 ---
 
@@ -122,30 +108,30 @@ Retorna os 3 blocos de leitura diária em ordem sequencial pela Bíblia.
 
 ```json
 {
-  "date": "2026-07-30",
-  "total_estimated_time": "~6 a 8 min",
   "readings": [
     {
-      "id": "at_historia",
-      "titulo_categoria": "Antigo Testamento",
+      "id": "antigo_testamento",
+      "categoria": "Antigo Testamento",
       "referencia": "Gênesis 1:1-12",
-      "tempo_estimado": "~2 a 3 min",
+      "tempo_estimado": "~3 min",
       "texto": "1. No princípio, Deus criou o céu e a terra.\n2. A terra estava...",
-      "reflexao": "Este trecho apresenta Deus como origem de toda a criação..."
+      "interpretacao": "Este trecho apresenta Deus como origem de toda a criação..."
     },
     {
       "id": "poesia_sabedoria",
-      "titulo_categoria": "Poesia e Sabedoria",
+      "categoria": "Poesia e Sabedoria",
       "referencia": "Jó 1:1-12",
-      "tempo_estimado": "~2 a 3 min",
-      "texto": "1. Havia, na terra de Hus, um homem chamado Jó..."
+      "tempo_estimado": "~2 min",
+      "texto": "1. Havia, na terra de Hus, um homem chamado Jó...",
+      "interpretacao": "A sabedoria bíblica convida à fidelidade mesmo diante das provações..."
     },
     {
       "id": "cartas_epistolas",
-      "titulo_categoria": "Cartas e Epístolas",
+      "categoria": "Cartas e Epístolas",
       "referencia": "Romanos 1:1-12",
-      "tempo_estimado": "~2 a 3 min",
-      "texto": "1. Paulo, servo de Jesus Cristo..."
+      "tempo_estimado": "~3 min",
+      "texto": "1. Paulo, servo de Jesus Cristo...",
+      "interpretacao": "Paulo recorda que somos chamados a viver o Evangelho..."
     }
   ]
 }
@@ -153,9 +139,9 @@ Retorna os 3 blocos de leitura diária em ordem sequencial pela Bíblia.
 
 ---
 
-### `GET /api/daily-reflection`
+### `GET /api/daily-homily`
 
-Retorna a Homilia Diária do Evangelho do dia, obtida via web scraping do site da Canção Nova.
+Retorna a homilia diária do Evangelho do dia, obtida via web scraping do site da Canção Nova.
 
 **Resposta** (`200 OK`):
 
@@ -164,27 +150,7 @@ Retorna a Homilia Diária do Evangelho do dia, obtida via web scraping do site d
   "success": true,
   "date": "2026-07-30",
   "title": "Verdadeiro tesouro no reino dos céus",
-  "content": "Então Jesus acrescentou assim: "Assim pois todo mestre da lei..."
-}
-```
-
----
-
-### `GET /api/verse-of-the-day`
-
-Retorna 1 versículo do dia na ordem sequencial da Bíblia com uma reflexão teológica gerada pelo Google Gemini.
-
-**Resposta** (`200 OK`):
-
-```json
-{
-  "date": "2026-07-30",
-  "reference": "Gênesis 1:2",
-  "book": "Gênesis",
-  "chapter": 1,
-  "verse": 2,
-  "text": "A terra estava sem forma e vazia; as trevas cobriam o abismo...",
-  "reflection": "Este versículo nos apresenta o estado primordial da criação..."
+  "content": "Então Jesus acrescentou assim: ..."
 }
 ```
 
