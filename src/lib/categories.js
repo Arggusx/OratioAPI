@@ -1,8 +1,8 @@
 export const CATEGORIES = {
-  at_historia: {
-    id: "at_historia",
+  antigo_testamento: {
+    id: "antigo_testamento",
     title: "Antigo Testamento",
-    estimated_time: "~2 a 3 min",
+    estimated_time: "~3 min",
     books: [
       "Gênesis", "Êxodo", "Levítico", "Números", "Deuteronômio",
       "Josué", "Juízes", "Rute", "I Samuel", "II Samuel",
@@ -17,7 +17,7 @@ export const CATEGORIES = {
   poesia_sabedoria: {
     id: "poesia_sabedoria",
     title: "Poesia e Sabedoria",
-    estimated_time: "~2 a 3 min",
+    estimated_time: "~2 min",
     books: [
       "Jó", "Salmos", "Provérbios", "Eclesiastes",
       "Cântico dos Cânticos", "Sabedoria", "Eclesiástico"
@@ -26,7 +26,7 @@ export const CATEGORIES = {
   cartas_epistolas: {
     id: "cartas_epistolas",
     title: "Cartas e Epístolas",
-    estimated_time: "~2 a 3 min",
+    estimated_time: "~3 min",
     books: [
       "Romanos", "I Coríntios", "II Coríntios", "Gálatas",
       "Efésios", "Filipenses", "Colossenses", "I Tessalonicenses",

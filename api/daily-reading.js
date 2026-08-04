@@ -1,5 +1,28 @@
 import { neon } from "@neondatabase/serverless";
 import { generateDailyReadingsForDate } from "./cron/daily-reading.js";
+import { CATEGORIES } from "../src/lib/categories.js";
+
+const DAILY_READINGS_QUERY = `
+  SELECT
+    category AS id,
+    category_title AS categoria,
+    reference AS referencia,
+    estimated_time AS tempo_estimado,
+    text AS texto,
+    reflection AS interpretacao
+  FROM daily_readings
+  WHERE date::text = $1
+  ORDER BY
+    CASE category
+      WHEN 'antigo_testamento' THEN 1
+      WHEN 'poesia_sabedoria' THEN 2
+      WHEN 'cartas_epistolas' THEN 3
+      ELSE 4
+    END`;
+
+async function getReadingsForDate(sql, date) {
+  return sql.query(DAILY_READINGS_QUERY, [date]);
+}
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -14,109 +37,33 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Método não permitido." });
   }
 
-  const sql = neon(process.env.DATABASE_URL);
-
   try {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL não está definida.");
+    }
+
+    const sql = neon(process.env.DATABASE_URL);
     const today = new Date().toISOString().split("T")[0];
+    let readings = await getReadingsForDate(sql, today);
 
-    let rows = await sql.query(
-      `SELECT
-         date::text AS date,
-         category AS id,
-         category_title AS titulo_categoria,
-         reference AS referencia,
-         estimated_time AS tempo_estimado,
-         text AS texto,
-         reflection AS reflexao
-       FROM daily_readings
-       WHERE date::text = $1
-       ORDER BY 
-         CASE category
-           WHEN 'at_historia' THEN 1
-           WHEN 'poesia_sabedoria' THEN 2
-           WHEN 'cartas_epistolas' THEN 3
-           ELSE 4
-         END`,
-      [today]
-    );
+    const hasCompleteDailyReading =
+      readings.length === Object.keys(CATEGORIES).length &&
+      readings.every((reading) => reading.interpretacao);
 
-    if (rows.length < 3 || rows.some((row) => !row.reflexao)) {
+    if (!hasCompleteDailyReading) {
       await generateDailyReadingsForDate(sql, today);
-
-      rows = await sql.query(
-        `SELECT
-           date::text AS date,
-           category AS id,
-           category_title AS titulo_categoria,
-           reference AS referencia,
-           estimated_time AS tempo_estimado,
-           text AS texto,
-           reflection AS reflexao
-         FROM daily_readings
-         WHERE date::text = $1
-         ORDER BY 
-           CASE category
-             WHEN 'at_historia' THEN 1
-             WHEN 'poesia_sabedoria' THEN 2
-             WHEN 'cartas_epistolas' THEN 3
-             ELSE 4
-           END`,
-        [today]
-      );
+      readings = await getReadingsForDate(sql, today);
     }
 
-    if (rows.length === 0) {
-      const latestDateRow = await sql.query(
-        "SELECT MAX(date::text) AS latest_date FROM daily_readings"
-      );
-      const latestDate = latestDateRow[0]?.latest_date;
+    const hasAllReadingsWithInterpretation =
+      readings.length === Object.keys(CATEGORIES).length &&
+      readings.every((reading) => reading.interpretacao);
 
-      if (latestDate) {
-        rows = await sql.query(
-          `SELECT
-             date::text AS date,
-             category AS id,
-             category_title AS titulo_categoria,
-             reference AS referencia,
-             estimated_time AS tempo_estimado,
-             text AS texto,
-             reflection AS reflexao
-           FROM daily_readings
-           WHERE date::text = $1
-           ORDER BY 
-             CASE category
-               WHEN 'at_historia' THEN 1
-               WHEN 'poesia_sabedoria' THEN 2
-               WHEN 'cartas_epistolas' THEN 3
-               ELSE 4
-             END`,
-          [latestDate]
-        );
-      }
+    if (!hasAllReadingsWithInterpretation) {
+      throw new Error("Não foi possível gerar os três blocos de leitura diária.");
     }
 
-    if (rows.length === 0) {
-      return res.status(404).json({
-        error: "Nenhuma leitura diária encontrada.",
-      });
-    }
-
-    const formattedDate = rows[0].date.split("T")[0];
-
-    const readings = rows.map((r) => ({
-      id: r.id,
-      titulo_categoria: r.titulo_categoria,
-      referencia: r.referencia,
-      tempo_estimado: r.tempo_estimado,
-      texto: r.texto,
-      reflexao: r.reflexao,
-    }));
-
-    return res.status(200).json({
-      date: formattedDate,
-      total_estimated_time: "~6 a 8 min",
-      readings,
-    });
+    return res.status(200).json({ readings });
   } catch (err) {
     console.error("Erro ao buscar leitura diária:", err);
     return res.status(500).json({ error: "Erro interno ao buscar a leitura diária." });

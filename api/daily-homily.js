@@ -1,4 +1,4 @@
-import { getDailyReflection } from "../src/services/dailyDiscovery.js";
+import { getDailyHomily } from "../src/services/dailyHomily.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -14,10 +14,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    const reflection = await getDailyReflection();
-    return res.status(200).json(reflection);
+    const homily = await getDailyHomily();
+    return res.status(200).json(homily);
   } catch (err) {
-    console.error("Erro na Homilia Diária:", err);
+    console.error("Erro na homilia diária:", err);
     return res.status(500).json({
       success: false,
       error: "Erro ao buscar a homilia diária.",

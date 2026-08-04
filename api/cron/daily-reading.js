@@ -1,10 +1,13 @@
 import { neon } from "@neondatabase/serverless";
+import { GoogleGenAI } from "@google/genai";
 import { CATEGORIES } from "../../src/lib/categories.js";
 
-const CHUNK_SIZE = 12;
+const MAX_VERSES_PER_READING = 10;
+const MIN_VERSES_PER_READING = 5;
+const TARGET_TEXT_LENGTH = 1_600;
 
 async function generateReflection(ai, reading) {
-  const prompt = `Forneça uma breve interpretação teológica e uma aplicação prática para a leitura bíblica abaixo. Responda em português, em no máximo 2 parágrafos simples e inspiradores. Não invente versículos nem informações que não estejam no trecho.\n\nCategoria: ${reading.categoryTitle}\nReferência: ${reading.reference}\n\nTrecho:\n${reading.text}`;
+  const prompt = `Forneça uma interpretação breve, objetiva e contextual para a leitura bíblica abaixo. Responda em português com exatamente 2 a 4 frases curtas. Não invente versículos nem informações que não estejam no trecho.\n\nCategoria: ${reading.categoryTitle}\nReferência: ${reading.reference}\n\nTrecho:\n${reading.text}`;
 
   const response = await ai.models.generateContent({
     model: "gemini-flash-latest",
@@ -20,7 +23,15 @@ async function generateReflection(ai, reading) {
 
 export async function generateDailyReadingsForDate(sql, today) {
   const generatedReadings = [];
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  let ai;
+  const getAi = () => {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY não está definida.");
+    }
+
+    ai ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    return ai;
+  };
 
   for (const key of Object.keys(CATEGORIES)) {
     const category = CATEGORIES[key];
@@ -39,7 +50,7 @@ export async function generateDailyReadingsForDate(sql, today) {
       const reading = existing[0];
 
       if (!reading.reflection) {
-        const reflection = await generateReflection(ai, {
+        const reflection = await generateReflection(getAi(), {
           categoryTitle: reading.category_title,
           reference: reading.reference,
           text: reading.text,
@@ -66,7 +77,7 @@ export async function generateDailyReadingsForDate(sql, today) {
       FROM verses
       WHERE id > $1 AND book_name IN (${bookPlaceholders})
       ORDER BY id ASC
-      LIMIT ${CHUNK_SIZE}
+      LIMIT ${MAX_VERSES_PER_READING}
     `;
     let params = [lastEndId, ...category.books];
 
@@ -78,18 +89,34 @@ export async function generateDailyReadingsForDate(sql, today) {
         FROM verses
         WHERE book_name IN (${category.books.map((_, i) => `$${i + 1}`).join(", ")})
         ORDER BY id ASC
-        LIMIT ${CHUNK_SIZE}
+        LIMIT ${MAX_VERSES_PER_READING}
       `;
       verseRows = await sql.query(resetQuery, category.books);
     }
 
     if (verseRows.length === 0) continue;
 
-    const startVerseId = verseRows[0].id;
-    const endVerseId = verseRows[verseRows.length - 1].id;
+    // Cada bloco contém de 5 a 10 versículos. Trechos mais longos ficam
+    // menores para manter o tempo total diário em torno de 5 a 10 minutos.
+    let accumulatedLength = 0;
+    const selectedVerses = [];
+    for (const verseRow of verseRows) {
+      selectedVerses.push(verseRow);
+      accumulatedLength += verseRow.text.length;
 
-    const first = verseRows[0];
-    const last = verseRows[verseRows.length - 1];
+      if (
+        selectedVerses.length >= MIN_VERSES_PER_READING &&
+        accumulatedLength >= TARGET_TEXT_LENGTH
+      ) {
+        break;
+      }
+    }
+
+    const startVerseId = selectedVerses[0].id;
+    const endVerseId = selectedVerses[selectedVerses.length - 1].id;
+
+    const first = selectedVerses[0];
+    const last = selectedVerses[selectedVerses.length - 1];
 
     let reference = "";
     if (first.book_name === last.book_name) {
@@ -102,7 +129,7 @@ export async function generateDailyReadingsForDate(sql, today) {
       reference = `${first.book_name} ${first.chapter}:${first.verse} - ${last.book_name} ${last.chapter}:${last.verse}`;
     }
 
-    const text = verseRows.map((v) => `${v.verse}. ${v.text}`).join("\n");
+    const text = selectedVerses.map((v) => `${v.verse}. ${v.text}`).join("\n");
 
     const insertedRows = await sql.query(
       `INSERT INTO daily_readings 
@@ -127,7 +154,7 @@ export async function generateDailyReadingsForDate(sql, today) {
     // avançar o ponteiro de leitura.
     const readingId = insertedRows[0]?.id;
     if (readingId) {
-      const reflection = await generateReflection(ai, {
+      const reflection = await generateReflection(getAi(), {
         categoryTitle: category.title,
         reference,
         text,
@@ -154,9 +181,12 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Não autorizado." });
   }
 
-  const sql = neon(process.env.DATABASE_URL);
-
   try {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL não está definida.");
+    }
+
+    const sql = neon(process.env.DATABASE_URL);
     const today = new Date().toISOString().split("T")[0];
     const generated = await generateDailyReadingsForDate(sql, today);
 
