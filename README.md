@@ -104,10 +104,20 @@ Retorna os 3 blocos de leitura diária em ordem sequencial pela Bíblia.
 
 > Evangelhos (Mateus, Marcos, Lucas, João) e Atos dos Apóstolos são **excluídos** deste endpoint.
 
+**Parâmetros opcionais** (use no máximo um):
+
+| Parâmetro | Exemplo | Descrição |
+|---|---|---|
+| `date` | `?date=2026-10-15` | Leituras de um dia já passado (`AAAA-MM-DD`, fuso de Brasília). Datas futuras retornam `400`; dias sem registro retornam `404`. |
+| `seq` | `?seq=1` | N-ésimo bloco de cada categoria desde o início (`1` = Gênesis 1, Jó 1, Romanos 1). Usado pelo site quando o leitor escolhe recomeçar a leitura. |
+
+O campo `interpretacao` pode vir `null`: os textos são sempre devolvidos, mesmo quando o Gemini falha ou demora mais que 7 s. A interpretação que faltar é gerada na próxima chamada do dia.
+
 **Resposta** (`200 OK`):
 
 ```json
 {
+  "date": "2026-10-19",
   "readings": [
     {
       "id": "antigo_testamento",
@@ -166,7 +176,7 @@ Configurados no `vercel.json` e executados automaticamente pela Vercel.
 
 Os cron jobs são protegidos pelo header `Authorization: Bearer CRON_SECRET`.
 
-Caso o cron não tenha sido executado antes da primeira requisição do dia, o endpoint público `/api/daily-reading` gera os dados automaticamente no momento da chamada. Para cada bloco diário, é feita uma chamada ao Gemini e a interpretação é salva junto à leitura.
+Caso o cron não tenha sido executado antes da primeira requisição do dia, o endpoint público `/api/daily-reading` gera os dados automaticamente no momento da chamada. A geração acontece em duas fases: primeiro os textos das três categorias são gravados; depois as interpretações que faltam são pedidas ao Gemini em paralelo. Uma falha da IA não impede as outras categorias nem a exibição dos textos. A data do dia segue o fuso `America/Sao_Paulo`.
 
 ---
 
