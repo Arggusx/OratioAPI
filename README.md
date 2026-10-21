@@ -151,16 +151,19 @@ O campo `interpretacao` pode vir `null`: os textos são sempre devolvidos, mesmo
 
 ### `GET /api/daily-homily`
 
-Retorna a homilia diária do Evangelho do dia, obtida via web scraping do site da Canção Nova.
+Retorna um **trecho** da homilia diária publicada pela Canção Nova e o link para o texto completo. A homilia é conteúdo autoral ("todos os direitos reservados"), por isso a API não republica o texto inteiro: devolve o início da reflexão do padre (cerca de 300 a 600 caracteres, pulando a citação do Evangelho) e o endereço da homilia do dia no site da Canção Nova.
 
 **Resposta** (`200 OK`):
 
 ```json
 {
   "success": true,
-  "date": "2026-07-30",
-  "title": "Verdadeiro tesouro no reino dos céus",
-  "content": "Então Jesus acrescentou assim: ..."
+  "date": "2026-10-20",
+  "title": "Espera e vigilância cristã",
+  "excerpt": "Meus irmãos e minhas irmãs, Jesus põe em ressalto uma figura...",
+  "content": "(igual a excerpt; mantido por compatibilidade)",
+  "url": "https://homilia.cancaonova.com/pb/homilia/espera-fidelidade-no-senhor/?sDia=20&sMes=10&sAno=2026",
+  "source": "Canção Nova"
 }
 ```
 
@@ -228,6 +231,44 @@ npm run seed
 ```bash
 npm run dev
 ```
+
+### 6. Completar interpretações que faltam (opcional)
+
+Leituras gravadas em dias em que o Gemini falhou ficam sem interpretação. O script abaixo gera as que faltam, das mais antigas para as mais recentes, e pode ser executado novamente para continuar de onde parou:
+
+```bash
+npm run backfill -- --dry-run          # só lista o que falta
+npm run backfill                       # gera tudo
+npm run backfill -- --limit=10         # gera no máximo 10
+npm run backfill -- --category=poesia_sabedoria
+npm run backfill -- --delay=8000       # intervalo entre chamadas (padrão: 5000 ms)
+```
+
+O script usa a mesma `DATABASE_URL` e `GEMINI_API_KEY` do `.env` e gasta a cota do Gemini. Se encontrar 3 falhas seguidas (normalmente cota esgotada), ele para.
+
+---
+
+## Backup do banco
+
+O plano gratuito do Neon guarda só 6 horas de histórico e não permite agendar snapshots. Por isso, o workflow `.github/workflows/backup-banco.yml` faz um backup diário (03:30 em Brasília):
+
+1. `pg_dump` da produção;
+2. **teste de restauração**: restaura o dump num Postgres temporário e confere se as contagens de `verses` e `daily_readings` batem com a produção (se não baterem, o workflow falha e o GitHub avisa por e-mail);
+3. criptografa o arquivo com AES-256 e guarda como artefato por 30 dias.
+
+**Configuração (uma vez):** em *Settings → Secrets and variables → Actions*, crie os segredos `DATABASE_URL` (de preferência de um papel só leitura) e `BACKUP_PASSPHRASE` (uma senha forte, guardada também fora do GitHub). Depois rode o workflow manualmente em *Actions → Backup do banco → Run workflow* para conferir.
+
+**Como restaurar:**
+
+```bash
+# 1. Baixe o artefato em Actions → Backup do banco → (execução) → Artifacts e descompacte.
+# 2. Descriptografe:
+gpg --decrypt backup-AAAA-MM-DD.dump.gpg > backup.dump
+# 3. Crie uma branch nova no Neon e restaure nela (nunca direto em produção):
+pg_restore --no-owner --no-privileges -d "<DATABASE_URL da branch nova>" backup.dump
+```
+
+Confira os dados na branch nova antes de apontar a API para ela.
 
 ---
 
