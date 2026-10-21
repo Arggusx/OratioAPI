@@ -34,63 +34,100 @@ function buildExcerpt(paragraphs) {
   return lastSentenceEnd > EXCERPT_MIN ? cut.slice(0, lastSentenceEnd + 1) : `${cut.trimEnd()}…`;
 }
 
-/** Link direto da homilia do dia (a página lista links com sDia/sMes/sAno). */
-function findTodayUrl($, isoDate) {
-  const [year, month, day] = isoDate.split("-").map(Number);
-  const suffix = `sDia=${day}&sMes=${month}&sAno=${year}`;
-  const href = $(`a[href*="/pb/homilia/"]`)
+function parseHomily($) {
+  let title = $("h1.entry-title span").text().trim();
+  if (!title) {
+    title = $("h1.entry-title").text().trim();
+  }
+
+  // Só parágrafos: os h3 são subtítulos e não fazem sentido soltos no trecho.
+  const paragraphs = $("div.entry-content.content-homilia")
+    .children("p")
+    .map((_, element) => $(element).text().trim())
+    .get()
+    .filter(Boolean);
+
+  return { title, paragraphs };
+}
+
+/** Links de homilias listados na página, com a data de cada uma (sDia/sMes/sAno). */
+function datedHomilyLinks($) {
+  const links = $(`a[href*="/pb/homilia/"]`)
     .map((_, a) => $(a).attr("href"))
     .get()
-    .find((link) => link.includes(suffix));
-  return href || HOMILY_PAGE;
+    .map((href) => {
+      const params = new URL(href, HOMILY_PAGE).searchParams;
+      const [day, month, year] = ["sDia", "sMes", "sAno"].map((key) => Number(params.get(key)));
+      if (!day || !month || !year) return null;
+      const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      return { href, date };
+    })
+    .filter(Boolean);
+  return [...new Map(links.map((link) => [link.date, link])).values()];
 }
+
+async function loadPage(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Erro na requisição: ${response.status}`);
+  }
+  return cheerio.load(await response.text());
+}
+
+// Enquanto só existe a homilia de um dia anterior, a resposta é guardada por pouco
+// tempo, para a de hoje aparecer logo que a Canção Nova publicar.
+const FALLBACK_CACHE_MS = 15 * 60_000;
 
 export async function getDailyHomily() {
   const today = todayInBrazil();
-  if (cache.date === today && cache.data) {
+  if (cache.date === today && cache.data && (!cache.expiresAt || Date.now() < cache.expiresAt)) {
     return cache.data;
   }
 
   try {
-    const response = await fetch(HOMILY_PAGE);
+    const $page = await loadPage(HOMILY_PAGE);
+    const links = datedHomilyLinks($page);
+    let { title, paragraphs } = parseHomily($page);
+    let date = today;
+    let url = links.find((link) => link.date === today)?.href || HOMILY_PAGE;
 
-    if (!response.ok) {
-      throw new Error(`Erro na requisição: ${response.status}`);
+    // Logo após a meia-noite a página principal fica vazia até a homilia do dia ser
+    // publicada. Nesse intervalo, usamos a homilia mais recente já publicada.
+    if (paragraphs.length === 0) {
+      const latest = links
+        .filter((link) => link.date <= today)
+        .sort((a, b) => b.date.localeCompare(a.date))[0];
+      if (latest) {
+        ({ title, paragraphs } = parseHomily(await loadPage(latest.href)));
+        date = latest.date;
+        url = latest.href;
+      }
     }
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
-
-    let title = $("h1.entry-title span").text().trim();
-    if (!title) {
-      title = $("h1.entry-title").text().trim();
-    }
-
-    // Só parágrafos: os h3 são subtítulos e não fazem sentido soltos no trecho.
-    const paragraphs = $("div.entry-content.content-homilia")
-      .children("p")
-      .map((_, element) => $(element).text().trim())
-      .get()
-      .filter(Boolean);
-
-    if (!title && paragraphs.length === 0) {
-      throw new Error("Não foi possível extrair o título e o conteúdo da página.");
+    if (paragraphs.length === 0) {
+      throw new Error("Não foi possível extrair o conteúdo da homilia.");
     }
 
     const excerpt = buildExcerpt(paragraphs);
 
     const result = {
       success: true,
-      date: today,
-      title: title || "Reflexão Diária",
+      date,
+      // true quando a homilia de hoje ainda não foi publicada e esta é a mais recente.
+      isFromPreviousDay: date !== today,
+      title: title || "Homilia do dia",
       excerpt,
       // Mantido por compatibilidade com versões anteriores do site: agora também é só o trecho.
       content: excerpt,
-      url: findTodayUrl($, today),
+      url,
       source: "Canção Nova",
     };
 
-    cache = { date: today, data: result };
+    cache = {
+      date: today,
+      data: result,
+      expiresAt: result.isFromPreviousDay ? Date.now() + FALLBACK_CACHE_MS : null,
+    };
     return result;
   } catch (error) {
     console.error("Erro ao fazer scraping:", error.message);
