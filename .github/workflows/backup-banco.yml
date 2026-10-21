@@ -1,0 +1,91 @@
+# Backup diário do banco Neon, com teste de restauração.
+#
+# 1. Faz o dump do banco de produção (pg_dump, formato custom).
+# 2. Restaura o dump num Postgres temporário e confere se as contagens batem
+#    com a produção — um backup só vale se a restauração funcionar.
+# 3. Criptografa o arquivo (AES-256) e guarda como artefato por 30 dias.
+#
+# Segredos necessários (Settings → Secrets and variables → Actions):
+#   DATABASE_URL       string de conexão do Neon (de preferência de um papel só leitura)
+#   BACKUP_PASSPHRASE  senha usada para criptografar o arquivo do backup
+name: Backup do banco
+
+on:
+  schedule:
+    - cron: "30 6 * * *" # 03:30 em Brasília, depois do cron das leituras (03:00 UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      restore-db:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: restore-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      # O cliente precisa ser da mesma versão (ou mais nova) que o Postgres do Neon.
+      PG_IMAGE: postgres:18
+
+    steps:
+      - name: Confere os segredos
+        run: |
+          [ -n "$DATABASE_URL" ] || { echo "::error::Segredo DATABASE_URL não configurado."; exit 1; }
+          [ -n "$BACKUP_PASSPHRASE" ] || { echo "::error::Segredo BACKUP_PASSPHRASE não configurado."; exit 1; }
+
+      - name: Gera o dump da produção
+        run: |
+          docker run --rm --network host -e DATABASE_URL -v "$PWD:/out" "$PG_IMAGE" \
+            sh -c 'pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges --file=/out/backup.dump'
+          ls -lh backup.dump
+
+      - name: Testa a restauração num Postgres temporário
+        run: |
+          docker run --rm --network host -e PGPASSWORD=restore-test -v "$PWD:/out" "$PG_IMAGE" \
+            pg_restore --no-owner --no-privileges --exit-on-error \
+              -h localhost -U postgres -d postgres /out/backup.dump
+
+          COUNTS_SQL="SELECT (SELECT count(*) FROM verses) || ' ' || (SELECT count(*) FROM daily_readings)"
+          PROD=$(docker run --rm --network host -e DATABASE_URL "$PG_IMAGE" \
+            sh -c "psql \"\$DATABASE_URL\" -tAc \"$COUNTS_SQL\"")
+          RESTORED=$(docker run --rm --network host -e PGPASSWORD=restore-test "$PG_IMAGE" \
+            psql -h localhost -U postgres -d postgres -tAc "$COUNTS_SQL")
+
+          echo "Produção  (verses daily_readings): $PROD"
+          echo "Restaurado (verses daily_readings): $RESTORED"
+          if [ -z "$RESTORED" ] || [ "$PROD" != "$RESTORED" ]; then
+            echo "::error::A restauração não confere com a produção."
+            exit 1
+          fi
+          echo "Restauração verificada com sucesso."
+
+      - name: Criptografa o backup
+        run: |
+          FILE="backup-$(date -u +%F).dump.gpg"
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --symmetric --cipher-algo AES256 --output "$FILE" backup.dump
+          rm backup.dump
+          echo "BACKUP_FILE=$FILE" >> "$GITHUB_ENV"
+
+      - name: Guarda o backup criptografado
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-banco-${{ github.run_id }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 30
+          if-no-files-found: error

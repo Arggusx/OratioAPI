@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node src/server.js",
-    "seed": "node seed.js"
+    "seed": "node seed.js",
+    "backfill": "node scripts/backfill-reflections.js"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",

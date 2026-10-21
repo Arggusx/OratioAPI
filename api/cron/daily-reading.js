@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 import { GoogleGenAI } from "@google/genai";
 import { CATEGORIES } from "../../src/lib/categories.js";
@@ -7,7 +8,7 @@ const MAX_VERSES_PER_READING = 10;
 const MIN_VERSES_PER_READING = 5;
 const TARGET_TEXT_LENGTH = 1_600;
 
-async function generateReflection(ai, reading) {
+export async function generateReflection(ai, reading) {
   const prompt = `Forneça uma interpretação breve, objetiva e contextual para a leitura bíblica abaixo. Responda em português com exatamente 2 a 4 frases curtas. Não invente versículos nem informações que não estejam no trecho.\n\nCategoria: ${reading.categoryTitle}\nReferência: ${reading.reference}\n\nTrecho:\n${reading.text}`;
 
   const response = await ai.models.generateContent({
@@ -96,7 +97,11 @@ async function selectNextVerses(sql, category) {
  * Uma falha do Gemini nunca impede os textos de serem gravados nem as outras
  * categorias de receberem interpretação; a próxima chamada completa o que faltar.
  */
-export async function generateDailyReadingsForDate(sql, today, { reflectionTimeoutMs } = {}) {
+export async function generateDailyReadingsForDate(
+  sql,
+  today,
+  { reflectionTimeoutMs, generateReflections = true } = {}
+) {
   const generatedReadings = [];
 
   for (const category of Object.values(CATEGORIES)) {
@@ -135,7 +140,7 @@ export async function generateDailyReadingsForDate(sql, today, { reflectionTimeo
     [today]
   );
 
-  if (missingReflections.length > 0) {
+  if (missingReflections.length > 0 && generateReflections) {
     if (!process.env.GEMINI_API_KEY) {
       console.error("GEMINI_API_KEY não está definida; leituras salvas sem interpretação.");
     } else {
@@ -166,9 +171,22 @@ export async function generateDailyReadingsForDate(sql, today, { reflectionTimeo
   return generatedReadings;
 }
 
+// Compara em tempo constante e nunca aceita a requisição se o segredo não estiver
+// configurado (sem isso, "Bearer undefined" passaria quando a variável faltasse).
+function isAuthorizedCron(authHeader) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || !authHeader) return false;
+  const expected = Buffer.from(`Bearer ${secret}`);
+  const received = Buffer.from(authHeader);
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}
+
 export default async function handler(req, res) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!process.env.CRON_SECRET) {
+    console.error("CRON_SECRET não está definida; cron bloqueado.");
+    return res.status(500).json({ error: "Cron não configurado." });
+  }
+  if (!isAuthorizedCron(req.headers.authorization)) {
     return res.status(401).json({ error: "Não autorizado." });
   }
 

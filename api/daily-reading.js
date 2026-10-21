@@ -7,6 +7,19 @@ import { isIsoDate, todayInBrazil } from "../src/lib/dates.js";
 // os textos. A interpretação que faltar é completada numa próxima chamada.
 const REFLECTION_TIMEOUT_MS = 7_000;
 
+// A rota é pública: sem um intervalo mínimo, cada visita durante uma falha do
+// Gemini dispararia novas chamadas pagas. Os textos continuam sendo gerados
+// sempre; só as interpretações respeitam este intervalo (por instância).
+const REFLECTION_RETRY_INTERVAL_MS = 10 * 60_000;
+let lastReflectionAttemptAt = 0;
+
+function shouldTryReflections() {
+  const now = Date.now();
+  if (now - lastReflectionAttemptAt < REFLECTION_RETRY_INTERVAL_MS) return false;
+  lastReflectionAttemptAt = now;
+  return true;
+}
+
 const READING_COLUMNS = `
     date::text AS data,
     category AS id,
@@ -100,7 +113,10 @@ export default async function handler(req, res) {
 
     // Só o dia atual é gerado sob demanda; dias passados são apenas consultados.
     if (date === today && !isComplete) {
-      await generateDailyReadingsForDate(sql, today, { reflectionTimeoutMs: REFLECTION_TIMEOUT_MS });
+      await generateDailyReadingsForDate(sql, today, {
+        reflectionTimeoutMs: REFLECTION_TIMEOUT_MS,
+        generateReflections: shouldTryReflections(),
+      });
       readings = await getReadingsForDate(sql, today);
     }
 
