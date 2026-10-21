@@ -151,7 +151,7 @@ O campo `interpretacao` pode vir `null`: os textos são sempre devolvidos, mesmo
 
 ### `GET /api/daily-homily`
 
-Retorna um **trecho** da homilia diária publicada pela Canção Nova e o link para o texto completo. A homilia é conteúdo autoral ("todos os direitos reservados"), por isso a API não republica o texto inteiro: devolve o início da reflexão do padre (cerca de 300 a 600 caracteres, pulando a citação do Evangelho) e o endereço da homilia do dia no site da Canção Nova.
+Retorna um **trecho** da homilia diária publicada pela Canção Nova e o link para o texto completo. A homilia é conteúdo autoral ("todos os direitos reservados"), por isso a API não republica o texto inteiro: devolve o início da reflexão do padre (cerca de 300 a 600 caracteres, pulando a citação do Evangelho) e o endereço da homilia do dia no site da Canção Nova. Se a homilia de hoje ainda não foi publicada (a página principal da Canção Nova fica vazia a partir das 21h, horário de Brasília, até a nova sair), a API devolve a mais recente publicada, com `isFromPreviousDay: true`.
 
 **Resposta** (`200 OK`):
 
