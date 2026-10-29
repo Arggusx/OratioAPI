@@ -16,15 +16,17 @@ daily-prayer-api/
 ├── src/
 │   ├── lib/
 │   │   ├── categories.js         # Mapeamento dos livros por categoria
+│   │   ├── dates.js              # Data de hoje no fuso de Brasília
+│   │   ├── reflections.js        # Interpretações com o Gemini (novas tentativas e backfill)
 │   │   └── db.js                 # Módulo de conexão com o Neon Postgres
 │   ├── routes/
 │   │   └── dailyPrayer.js        # Rota Express (dev local)
 │   ├── services/
-│   │   ├── dailyHomily.js        # Web scraping da Homilia (Canção Nova)
-│   │   └── translate.js          # Serviço de tradução
+│   │   └── dailyHomily.js        # Trecho da Homilia (Canção Nova)
 │   └── server.js                 # Servidor Express (dev local)
 ├── seed.js                       # Script de seed da Bíblia no banco
-├── vercel.json                   # Configuração do Cron Job na Vercel
+├── scripts/backfill-reflections.js # Completa interpretações que faltam
+├── vercel.json                   # Cron Job e cabeçalhos de segurança
 ├── package.json
 └── .env                          # Variáveis de ambiente (não versionado)
 ```
