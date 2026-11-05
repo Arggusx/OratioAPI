@@ -16,15 +16,17 @@ daily-prayer-api/
 ├── src/
 │   ├── lib/
 │   │   ├── categories.js         # Mapeamento dos livros por categoria
+│   │   ├── dates.js              # Data de hoje no fuso de Brasília
+│   │   ├── reflections.js        # Interpretações com o Gemini (novas tentativas e backfill)
 │   │   └── db.js                 # Módulo de conexão com o Neon Postgres
 │   ├── routes/
 │   │   └── dailyPrayer.js        # Rota Express (dev local)
 │   ├── services/
-│   │   ├── dailyHomily.js        # Web scraping da Homilia (Canção Nova)
-│   │   └── translate.js          # Serviço de tradução
+│   │   └── dailyHomily.js        # Trecho da Homilia (Canção Nova)
 │   └── server.js                 # Servidor Express (dev local)
 ├── seed.js                       # Script de seed da Bíblia no banco
-├── vercel.json                   # Configuração do Cron Job na Vercel
+├── scripts/backfill-reflections.js # Completa interpretações que faltam
+├── vercel.json                   # Cron Job e cabeçalhos de segurança
 ├── package.json
 └── .env                          # Variáveis de ambiente (não versionado)
 ```
@@ -169,6 +171,26 @@ Retorna um **trecho** da homilia diária publicada pela Canção Nova e o link p
 
 ---
 
+## Comunidade (`/api/community`)
+
+Contador coletivo, novenas em grupo, metas e mural de intenções do Oratio, sem identificar ninguém.
+
+| Ação | Método e rota | Corpo |
+|---|---|---|
+| Números do dia (terços, novenas, metas) | `GET /api/community?r=stats` | |
+| Mural (20 por página) | `GET /api/community?r=intentions[&before=<id>]` | cabeçalho opcional `X-Anon-Id` |
+| Marcar terço ou dia de novena | `POST /api/community?r=event` | `{ anonId, kind: "terco" | "novena", ref? }` |
+| Deixar um pedido | `POST /api/community?r=intentions` | `{ anonId, text, firstName? }` |
+| "Rezei por você" | `POST /api/community?r=pray` | `{ anonId, id }` |
+| Denunciar um pedido | `POST /api/community?r=report` | `{ anonId, id }` |
+
+- **Anonimato:** o site gera um código aleatório por aparelho (`anonId`); o banco guarda só um HMAC dele com `COMMUNITY_SECRET`. O IP também só aparece como HMAC que muda todo dia e serve apenas para limitar envios.
+- **Limites:** 3 pedidos por dia (por IP e por aparelho); 60 marcações, "rezei por você" ou denúncias por IP por dia. Escrita só a partir das origens permitidas.
+- **Mural:** links, e-mails e telefones são removidos do texto; uma lista curta de palavrões é recusada; um pedido some depois de 30 dias ou quando 3 conexões (IPs) diferentes o denunciam.
+- **Tabelas:** criadas por `migrations/003_comunidade.sql` (rode no SQL Editor do Neon com o usuário dono; o script também dá as permissões ao `oratio_app`).
+
+---
+
 ## Cron Jobs
 
 Configurados no `vercel.json` e executados automaticamente pela Vercel.
@@ -183,13 +205,15 @@ Caso o cron não tenha sido executado antes da primeira requisição do dia, o e
 
 ---
 
-## ariáveis de Ambiente
+## Variáveis de Ambiente
 
 | Variável | Descrição |
 |---|---|
 | `DATABASE_URL` | Connection string do PostgreSQL no Neon |
 | `CRON_SECRET` | Token Bearer para autenticar os cron jobs da Vercel |
 | `GEMINI_API_KEY` | Chave de API do Google Gemini |
+| `COMMUNITY_SECRET` | Chave para os hashes anônimos da Comunidade (mínimo 16 caracteres, aleatória). Gere com `openssl rand -hex 32` |
+| `ALLOWED_ORIGINS` | (opcional) Origens que podem escrever na Comunidade, separadas por vírgula. Padrão: o site e `http://localhost:5173` |
 
 ---
 

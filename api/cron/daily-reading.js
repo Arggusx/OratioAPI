@@ -3,25 +3,19 @@ import { neon } from "@neondatabase/serverless";
 import { GoogleGenAI } from "@google/genai";
 import { CATEGORIES } from "../../src/lib/categories.js";
 import { todayInBrazil } from "../../src/lib/dates.js";
+import {
+  backfillReflections,
+  generateReflection,
+  generateWithRetry,
+} from "../../src/lib/reflections.js";
+
+export { generateReflection };
 
 const MAX_VERSES_PER_READING = 10;
 const MIN_VERSES_PER_READING = 5;
 const TARGET_TEXT_LENGTH = 1_600;
-
-export async function generateReflection(ai, reading) {
-  const prompt = `Forneça uma interpretação breve, objetiva e contextual para a leitura bíblica abaixo. Responda em português com exatamente 2 a 4 frases curtas. Não invente versículos nem informações que não estejam no trecho.\n\nCategoria: ${reading.categoryTitle}\nReferência: ${reading.reference}\n\nTrecho:\n${reading.text}`;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-flash-latest",
-    contents: prompt,
-  });
-
-  if (!response.text) {
-    throw new Error(`A IA não retornou uma interpretação para ${reading.reference}.`);
-  }
-
-  return response.text;
-}
+// Tempo de trabalho do cron, com folga para o limite de 60 s da função.
+const CRON_BUDGET_MS = 50_000;
 
 function withTimeout(promise, ms) {
   if (!ms) return promise;
@@ -145,26 +139,35 @@ export async function generateDailyReadingsForDate(
       console.error("GEMINI_API_KEY não está definida; leituras salvas sem interpretação.");
     } else {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const results = await Promise.allSettled(
-        missingReflections.map(async (reading) => {
-          const reflection = await withTimeout(
-            generateReflection(ai, {
-              categoryTitle: reading.category_title,
-              reference: reading.reference,
-              text: reading.text,
-            }),
-            reflectionTimeoutMs
-          );
-          await sql.query("UPDATE daily_readings SET reflection = $1 WHERE id = $2", [
-            reflection,
-            reading.id,
-          ]);
-        })
-      );
+      const save = async (reading, reflection) =>
+        sql.query("UPDATE daily_readings SET reflection = $1 WHERE id = $2", [reflection, reading.id]);
+      const toInput = (reading) => ({
+        categoryTitle: reading.category_title,
+        reference: reading.reference,
+        text: reading.text,
+      });
 
-      results
-        .filter((result) => result.status === "rejected")
-        .forEach((result) => console.error("Falha ao gerar interpretação:", result.reason));
+      if (reflectionTimeoutMs) {
+        // Rota pública: o visitante está esperando, então é uma tentativa rápida e em paralelo.
+        const results = await Promise.allSettled(
+          missingReflections.map(async (reading) =>
+            save(reading, await withTimeout(generateReflection(ai, toInput(reading)), reflectionTimeoutMs))
+          )
+        );
+        results
+          .filter((result) => result.status === "rejected")
+          .forEach((result) => console.error("Falha ao gerar interpretação:", result.reason));
+      } else {
+        // Cron: sem pressa, uma por vez e com novas tentativas, para não esbarrar no
+        // limite de requisições do Gemini.
+        for (const reading of missingReflections) {
+          try {
+            await save(reading, await generateWithRetry(ai, toInput(reading), { retries: 2 }));
+          } catch (err) {
+            console.error("Falha ao gerar interpretação:", err);
+          }
+        }
+      }
     }
   }
 
@@ -195,14 +198,26 @@ export default async function handler(req, res) {
       throw new Error("DATABASE_URL não está definida.");
     }
 
+    const startedAt = Date.now();
     const sql = neon(process.env.DATABASE_URL);
     const today = todayInBrazil();
     const generated = await generateDailyReadingsForDate(sql, today);
+
+    // Aproveita a execução diária para completar interpretações de dias anteriores
+    // que falharam. Usa só o tempo que sobrar dos 60 s da função (vercel.json).
+    const remainingMs = CRON_BUDGET_MS - (Date.now() - startedAt);
+    const backfill =
+      process.env.GEMINI_API_KEY && remainingMs > 10_000
+        ? await backfillReflections(sql, new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }), {
+            deadlineMs: remainingMs - 10_000,
+          })
+        : null;
 
     return res.status(200).json({
       success: true,
       date: today,
       generated,
+      backfill,
     });
   } catch (err) {
     console.error("Erro no cron daily-reading:", err);

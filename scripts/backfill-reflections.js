@@ -15,10 +15,9 @@
 import "dotenv/config";
 import { neon } from "@neondatabase/serverless";
 import { GoogleGenAI } from "@google/genai";
-import { generateReflection } from "../api/cron/daily-reading.js";
+import { generateWithRetry, sleep } from "../src/lib/reflections.js";
 import { CATEGORIES } from "../src/lib/categories.js";
 
-const MAX_RETRIES = 3;
 // Para depois de várias falhas seguidas: geralmente é a cota diária do Gemini.
 const MAX_CONSECUTIVE_FAILURES = 3;
 
@@ -47,27 +46,6 @@ function parseArgs(argv) {
     process.exit(1);
   }
   return options;
-}
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Erros temporários (limite de requisições, serviço sobrecarregado) valem nova tentativa.
-function isRetryable(err) {
-  const text = `${err?.status ?? ""} ${err?.message ?? ""}`;
-  return /429|500|503|RESOURCE_EXHAUSTED|UNAVAILABLE|overloaded|rate/i.test(text);
-}
-
-async function generateWithRetry(ai, reading, baseDelay) {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await generateReflection(ai, reading);
-    } catch (err) {
-      if (attempt >= MAX_RETRIES || !isRetryable(err)) throw err;
-      const wait = Math.max(baseDelay, 5_000) * 2 ** attempt;
-      console.warn(`   ⏳ ${err.message?.slice(0, 80)} — tentando de novo em ${wait / 1000} s`);
-      await sleep(wait);
-    }
-  }
 }
 
 async function main() {
@@ -118,7 +96,7 @@ async function main() {
       const reflection = await generateWithRetry(
         ai,
         { categoryTitle: reading.category_title, reference: reading.reference, text: reading.text },
-        options.delay
+        { baseDelay: options.delay }
       );
       // A condição evita sobrescrever uma interpretação gravada nesse meio-tempo pela API.
       await sql.query(
