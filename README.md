@@ -191,6 +191,25 @@ Contador coletivo, novenas em grupo, metas e mural de intenções do Oratio, sem
 
 ---
 
+## Conta (`/api/account`)
+
+Login com Google para guardar o progresso da Jornada em mais de um aparelho. Uma função só, com a ação em `?r=`:
+
+| Método e rota | Corpo | Resposta |
+|---|---|---|
+| `POST ?r=login` | `{ credential }` (ID token do "Entrar com Google") | `{ token, user, progress }` |
+| `GET ?r=me` | — | `{ user, progress }` |
+| `PUT ?r=progress` | `{ data }` (o objeto `oratio:jornada` do site, até 200 KB) | `{ updatedAt }` |
+| `PATCH ?r=preferences` | `{ wantsMessages }` | `{ user }` |
+| `DELETE ?r=account` | — | `204`, apaga a conta e o progresso |
+
+- **Login:** a API confere a assinatura do ID token com as chaves públicas do Google, o público (`GOOGLE_CLIENT_ID`), o emissor e a validade. Nenhuma senha passa pelo Oratio.
+- **Sessão:** um token `{ uid, exp }` assinado com HMAC (`SESSION_SECRET`), válido por 30 dias, enviado em `Authorization: Bearer`.
+- **Dados guardados:** o identificador da conta Google, o e-mail, o primeiro nome, o progresso e se a pessoa quer as mensagens. Apagar a conta apaga tudo.
+- **Tabelas:** criadas por `migrations/004_contas.sql` (com as permissões do `oratio_app`).
+
+---
+
 ## Cron Jobs
 
 Configurados no `vercel.json` e executados automaticamente pela Vercel.
@@ -198,6 +217,7 @@ Configurados no `vercel.json` e executados automaticamente pela Vercel.
 | Rota | Schedule | Descrição |
 |---|---|---|
 | `/api/cron/daily-reading` | `0 3 * * *` (03:00 UTC) | Gera os 3 blocos de leitura do dia |
+| `/api/cron/daily-message` | `0 9 * * *` (06:00 em Brasília) | Manda a Palavra do dia por e-mail (Resend) para quem aceitou na Jornada; sem `RESEND_API_KEY` não envia nada |
 
 Os cron jobs são protegidos pelo header `Authorization: Bearer CRON_SECRET`.
 
@@ -214,7 +234,12 @@ Caso o cron não tenha sido executado antes da primeira requisição do dia, o e
 | `GEMINI_API_KEY` | Chave de API do Google Gemini |
 | `COMMUNITY_SECRET` | Chave para os hashes anônimos da Comunidade (mínimo 16 caracteres, aleatória). Gere com `openssl rand -hex 32` |
 | `TURNSTILE_SECRET_KEY` | Chave secreta do Cloudflare Turnstile, conferida ao publicar um pedido no mural. Sem ela, a verificação fica desligada |
-| `ALLOWED_ORIGINS` | (opcional) Origens que podem escrever na Comunidade, separadas por vírgula. Padrão: o site e `http://localhost:5173` |
+| `ALLOWED_ORIGINS` | (opcional) Origens que podem escrever na Comunidade e usar a conta, separadas por vírgula. Padrão: o site e `http://localhost:5173` |
+| `GOOGLE_CLIENT_ID` | Client ID do "Entrar com Google" (Google Cloud → Credenciais → ID do cliente OAuth, tipo Aplicativo da Web). É público |
+| `SESSION_SECRET` | Chave das sessões da conta (mínimo 32 caracteres, aleatória). Gere com `openssl rand -hex 32` |
+| `RESEND_API_KEY` | (opcional) Chave do Resend para as mensagens diárias por e-mail. Sem ela o cron não envia nada |
+| `MESSAGES_FROM` | (opcional) Remetente das mensagens, ex.: `Oratio <mensagens@oratiodaily.com>` (o domínio precisa estar verificado no Resend) |
+| `MESSAGES_SITE_URL` | (opcional) Endereço do site nos e-mails. Padrão: `https://www.oratiodaily.com` |
 
 ---
 

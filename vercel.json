@@ -3,10 +3,15 @@
     {
       "path": "/api/cron/daily-reading",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/daily-message",
+      "schedule": "0 9 * * *"
     }
   ],
   "functions": {
-    "api/cron/daily-reading.js": { "maxDuration": 60 }
+    "api/cron/daily-reading.js": { "maxDuration": 60 },
+    "api/cron/daily-message.js": { "maxDuration": 60 }
   },
   "headers": [
     {
