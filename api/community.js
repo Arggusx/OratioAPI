@@ -9,6 +9,7 @@ import {
   recordEvent,
   reportIntention,
 } from "../src/lib/community.js";
+import { verifyTurnstile } from "../src/lib/turnstile.js";
 
 // Uma função só para a Comunidade (economiza o limite de funções da Vercel). A ação vem em ?r=.
 //   GET  ?r=stats              terços de hoje, novenas em grupo e metas
@@ -85,6 +86,8 @@ export default async function handler(req, res) {
       return res.status(204).end();
     }
     if (route === "intentions") {
+      // O mural é o único lugar onde um envio fica visível para todos: só ele pede o Turnstile.
+      await verifyTurnstile(body.turnstileToken, clientIp(req));
       const created = await createIntention(sql, {
         text: body.text,
         firstName: body.firstName,

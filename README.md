@@ -213,6 +213,7 @@ Caso o cron não tenha sido executado antes da primeira requisição do dia, o e
 | `CRON_SECRET` | Token Bearer para autenticar os cron jobs da Vercel |
 | `GEMINI_API_KEY` | Chave de API do Google Gemini |
 | `COMMUNITY_SECRET` | Chave para os hashes anônimos da Comunidade (mínimo 16 caracteres, aleatória). Gere com `openssl rand -hex 32` |
+| `TURNSTILE_SECRET_KEY` | Chave secreta do Cloudflare Turnstile, conferida ao publicar um pedido no mural. Sem ela, a verificação fica desligada |
 | `ALLOWED_ORIGINS` | (opcional) Origens que podem escrever na Comunidade, separadas por vírgula. Padrão: o site e `http://localhost:5173` |
 
 ---
